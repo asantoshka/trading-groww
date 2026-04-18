@@ -1,3 +1,5 @@
+import axios from 'axios'
+import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import useStore from '../store/useStore'
@@ -11,6 +13,44 @@ const TITLES = {
   '/paper': 'Paper Trading'
 }
 
+function MarketStatusBadge({ marketStatus }) {
+  if (!marketStatus) return null
+
+  if (marketStatus.is_open) {
+    return (
+      <span className="shrink-0 font-mono text-[10px] text-green">
+        ● MARKET OPEN
+      </span>
+    )
+  }
+  if (marketStatus.status === 'pre_market') {
+    return (
+      <span className="shrink-0 font-mono text-[10px] text-amber-400">
+        ● PRE-MARKET
+      </span>
+    )
+  }
+  if (marketStatus.status === 'holiday') {
+    return (
+      <span className="shrink-0 font-mono text-[10px] text-red">
+        ● HOLIDAY
+      </span>
+    )
+  }
+  if (marketStatus.status === 'weekend') {
+    return (
+      <span className="shrink-0 font-mono text-[10px] text-muted">
+        ● WEEKEND
+      </span>
+    )
+  }
+  return (
+    <span className="shrink-0 font-mono text-[10px] text-muted">
+      ● CLOSED
+    </span>
+  )
+}
+
 export default function TopBar({ onMenuClick }) {
   const location = useLocation()
   const capital = useStore((s) => s.capital)
@@ -18,6 +58,19 @@ export default function TopBar({ onMenuClick }) {
   const runningCount = Object.values(agents).filter(
     (agent) => agent.status === 'running'
   ).length
+
+  const [marketStatus, setMarketStatus] = useState(null)
+
+  useEffect(() => {
+    const fetchStatus = () => {
+      axios.get('/api/market/status')
+        .then((r) => setMarketStatus(r.data))
+        .catch(() => {})
+    }
+    fetchStatus()
+    const interval = setInterval(fetchStatus, 60000)
+    return () => clearInterval(interval)
+  }, [])
 
   return (
     <header className="fixed left-0 right-0 top-0 z-20 flex h-[56px] min-w-0 items-center justify-between border-b border-border bg-surface px-4 sm:px-5 md:left-[220px] lg:px-6">
@@ -58,6 +111,8 @@ export default function TopBar({ onMenuClick }) {
             <span>{runningCount} running</span>
           </div>
         ) : null}
+
+        <MarketStatusBadge marketStatus={marketStatus} />
       </div>
 
       <div className="hidden shrink-0 items-center rounded border border-green/30 bg-green/10 px-2 py-0.5 font-mono text-[10px] text-green md:flex">
@@ -65,6 +120,7 @@ export default function TopBar({ onMenuClick }) {
       </div>
 
       <div className="flex items-center gap-3 md:hidden">
+        <MarketStatusBadge marketStatus={marketStatus} />
         <div
           className={`font-mono text-[10px] font-semibold ${
             capital.today_pnl >= 0 ? 'text-green' : 'text-red'

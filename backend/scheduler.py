@@ -5,6 +5,13 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from database import SessionLocal
+from services.market_hours import (
+    fetch_nse_holidays,
+    get_market_status,
+    is_market_open,
+    is_trading_day,
+    next_market_open,
+)
 from services.market_scanner import market_scanner
 from services.telegram_notifier import telegram
 from services.token_manager import token_manager
@@ -16,6 +23,17 @@ IST = ZoneInfo("Asia/Kolkata")
 
 async def job_market_scan():
     """Triggered at configured scan times."""
+    if not is_market_open():
+        status = get_market_status()
+        logger.info("[Scheduler] Scan skipped: %s", status["message"])
+        await broadcast_agent_log(
+            "market_scanner",
+            "info",
+            f"Scheduled scan skipped — {status['message']}. "
+            f"Next: {next_market_open()}",
+        )
+        return
+
     logger.info("[Scheduler] Market scan job started")
     await broadcast_agent_log(
         "market_scanner",
@@ -36,25 +54,30 @@ async def job_market_scan():
 async def job_token_refresh():
     """Runs at 6:05 AM IST — after Groww resets tokens."""
     logger.info("[Scheduler] Groww token refresh job")
-    await broadcast_agent_log(
-        "market_scanner",
-        "warning",
-        "6:05 AM IST — Groww daily token reset occurred. "
-        "Invalidating cached token...",
-    )
     await token_manager.invalidate()
-    await broadcast_agent_log(
-        "market_scanner",
-        "info",
-        "Token invalidated. Will regenerate on next "
-        "API call. Please approve today's session at "
-        "groww.in/user/profile/trading-apis if required.",
-    )
-    await telegram.notify_token_refresh()
+    if is_trading_day():
+        await broadcast_agent_log(
+            "market_scanner",
+            "warning",
+            "6:05 AM IST — Groww daily token reset occurred. "
+            "Invalidating cached token...",
+        )
+        await broadcast_agent_log(
+            "market_scanner",
+            "info",
+            "Token invalidated. Will regenerate on next "
+            "API call. Please approve today's session at "
+            "groww.in/user/profile/trading-apis if required.",
+        )
+        await telegram.notify_token_refresh()
+    else:
+        logger.info("[Scheduler] Token invalidated (non-trading day, silent)")
 
 
 async def job_squareoff_warning():
     """Runs at 15:05 IST — warns before auto square-off."""
+    if not is_trading_day():
+        return
     logger.info("[Scheduler] Square-off warning job")
     await broadcast_agent_log(
         "execution",
@@ -68,6 +91,8 @@ async def job_squareoff_warning():
 
 async def job_market_open_check():
     """Runs at 9:14 AM IST — pre-market check."""
+    if not is_trading_day():
+        return
     logger.info("[Scheduler] Market open check")
     await broadcast_agent_log(
         "market_scanner",
@@ -144,6 +169,13 @@ class TradingScheduler:
             trigger=CronTrigger(hour=15, minute=5, timezone=IST),
             id="squareoff_warning",
             name="Square-off Warning 15:05",
+            replace_existing=True,
+        )
+        self.scheduler.add_job(
+            fetch_nse_holidays,
+            trigger=CronTrigger(day_of_week="sun", hour=0, minute=0, timezone=IST),
+            id="holiday_refresh",
+            name="NSE Holiday Cache Refresh",
             replace_existing=True,
         )
 

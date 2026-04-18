@@ -9,8 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from env_validator import env_validator
 from mock_data import MOCK_AGENTS
 from routers import agents, config, positions, signals, trades
+from services.market_hours import fetch_nse_holidays, get_market_status
 from routers.risk import router as risk_router
 from routers.scheduler import router as scheduler_router
+from routers.scheduler import router_market
 from routers.websocket import router as ws_router
 from scheduler import trading_scheduler
 from services.websocket_manager import manager
@@ -51,6 +53,13 @@ async def startup() -> None:
     finally:
         db.close()
     logger.info("Database tables created / verified")
+    print("[Startup] Fetching NSE holidays...")
+    await fetch_nse_holidays()
+    market = get_market_status()
+    print(
+        f"[Startup] Market status: {market['message']} | "
+        f"Holidays loaded: {market['holiday_count']}"
+    )
     await trading_scheduler.start()
     print("[Startup] Scheduler started")
 
@@ -114,4 +123,5 @@ app.include_router(signals.router, prefix="/api")
 app.include_router(config.router, prefix="/api")
 app.include_router(risk_router)
 app.include_router(scheduler_router)
+app.include_router(router_market)
 app.include_router(ws_router)

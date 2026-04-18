@@ -9,6 +9,7 @@ from mock_data import MOCK_AGENTS
 from models import AgentLog
 from schemas import AgentLogResponse
 from services.execution_agent import execution_agent
+from services.market_hours import get_market_status
 from services.market_scanner import market_scanner
 
 
@@ -91,7 +92,7 @@ def restart_agent(name: str, db: Session = Depends(get_db)) -> dict[str, str]:
 
 
 @router.post("/agents/scanner/trigger")
-async def trigger_scanner() -> dict[str, str]:
+async def trigger_scanner() -> dict[str, object]:
     try:
         asyncio.create_task(market_scanner.run_scan())
     except Exception as exc:
@@ -99,8 +100,15 @@ async def trigger_scanner() -> dict[str, str]:
             status_code=500,
             detail=f"Failed to trigger scan: {exc}",
         ) from exc
+    market = get_market_status()
     return {
-        "message": "Scan triggered. Running in background.",
+        "message": "Scan triggered manually",
         "status": "running",
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "market_status": market["message"],
+        "warning": (
+            None
+            if market["is_open"]
+            else f"{market['message']}. Data may be stale."
+        ),
     }
