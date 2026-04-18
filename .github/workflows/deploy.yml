@@ -1,0 +1,60 @@
+# Deployment Flow:
+# 1. Developer pushes to main branch
+# 2. GitHub Actions triggers deploy job
+# 3. SSH into EC2 (13.201.42.183)
+# 4. git pull latest code
+# 5. docker compose build backend
+# 6. docker compose build frontend
+# 7. docker compose up -d (rolling restart)
+# 8. Health check confirms backend is up
+# 9. Done — takes ~3-5 minutes total
+
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to EC2 Mumbai
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          timeout: 300s
+          script: |
+            set -e
+
+            echo "=== Pulling latest code ==="
+            cd /home/ubuntu/trading-app
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "=== Rebuilding backend ==="
+            sudo docker compose build backend
+
+            echo "=== Rebuilding frontend ==="
+            sudo docker compose build frontend
+
+            echo "=== Restarting containers ==="
+            sudo docker compose up -d
+
+            echo "=== Waiting for backend health ==="
+            sleep 10
+            curl -f http://localhost:8000/health \
+              || (echo "Health check failed" && exit 1)
+
+            echo "=== Deployment complete ==="
+            sudo docker compose ps

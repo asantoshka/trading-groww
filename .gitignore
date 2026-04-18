@@ -52,6 +52,10 @@ Thumbs.db
 # Docker / local overrides
 docker-compose.override.yml
 
+# Keys / certificates
+*.pem
+*.key
+
 # OS / misc
 *.tmp
 *.bak
