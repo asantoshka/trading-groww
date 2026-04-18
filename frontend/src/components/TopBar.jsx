@@ -60,6 +60,10 @@ export default function TopBar({ onMenuClick }) {
         ) : null}
       </div>
 
+      <div className="hidden shrink-0 items-center rounded border border-green/30 bg-green/10 px-2 py-0.5 font-mono text-[10px] text-green md:flex">
+        v1.0 · CI/CD ✓
+      </div>
+
       <div className="flex items-center gap-3 md:hidden">
         <div
           className={`font-mono text-[10px] font-semibold ${
