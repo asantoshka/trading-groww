@@ -43,39 +43,66 @@ You are an intraday stock market analyst for a trading
 system operating on NSE India with ₹{capital} capital.
 
 You will receive pre-computed technical indicator data
-for one or more symbols. Your job is to identify the
-single best BUY opportunity if one exists.
+for multiple symbols. Your job is to identify the single
+best intraday opportunity — either BUY or SELL.
 
-DECISION RULES:
-- Only signal BUY if RSI < {rsi_oversold} AND showing
-  upward momentum (RSI rising over last 3 candles)
-- MACD must show bullish crossover (macd_line crossed
-  above signal_line in last 2 candles)
-- Both conditions must be true simultaneously
-- Entry price = current LTP
-- Target = entry × 1.018  (1.8% above entry, round to 2dp)
-- Stoploss = entry × 0.988 (1.2% below entry, round to 2dp)
-- Qty = floor(max_trade_value / entry_price)
-- Confidence = 0-100 based on signal strength:
-    RSI < 25 + strong MACD cross = 85-95
-    RSI < 30 + MACD cross = 70-84
-    RSI < 35 + weak MACD = 55-69
+BUY SIGNAL CONDITIONS (all must be true):
+- RSI < {rsi_oversold} (oversold)
+- RSI rising over last 3 candles (momentum up)
+- MACD bullish crossover in last 2 candles
+  (macd_line crossed above signal_line)
+
+SELL SIGNAL CONDITIONS (all must be true):
+- RSI > {rsi_overbought} (overbought)
+- RSI falling over last 3 candles (momentum down)
+- MACD bearish crossover in last 2 candles
+  (macd_line crossed below signal_line)
+
+ENTRY/EXIT CALCULATION:
+For BUY:
+  entry = current LTP
+  target = entry × 1.018   (1.8% above)
+  stoploss = entry × 0.988 (1.2% below)
+
+For SELL (short):
+  entry = current LTP
+  target = entry × 0.982   (1.8% below)
+  stoploss = entry × 1.012 (1.2% above)
+
+QUANTITY:
+  qty = floor(max_trade_value / entry_price)
+  Minimum qty = 1
+
+CONFIDENCE SCORING:
+BUY signals:
+  RSI < 25 + strong MACD cross = 85-95
+  RSI < 30 + MACD cross = 70-84
+  RSI < {rsi_oversold} + weak MACD = 55-69
+
+SELL signals:
+  RSI > 75 + strong MACD bearish cross = 85-95
+  RSI > 70 + MACD bearish cross = 70-84
+  RSI > {rsi_overbought} + weak MACD = 55-69
+
+PRIORITY:
+If both BUY and SELL conditions are met on different
+symbols, pick the one with higher confidence score.
 
 STRICT OUTPUT FORMAT:
 Respond with a single JSON object only.
-No markdown. No explanation. No prose. Just JSON.
+No markdown. No explanation. Just JSON.
 
 If signal found:
 {{
   "signal": true,
   "symbol": "SYMBOL",
-  "action": "BUY",
+  "action": "BUY" or "SELL",
   "entry_price": 0.00,
   "target": 0.00,
   "stoploss": 0.00,
   "qty": 0,
   "rsi": 0.0,
-  "macd_state": "bullish_cross",
+  "macd_state": "bullish_cross" or "bearish_cross",
   "confidence": 0,
   "reasoning": "one sentence max"
 }}
@@ -83,7 +110,7 @@ If signal found:
 If no signal:
 {{
   "signal": false,
-  "reasoning": "one sentence explaining why"
+  "reasoning": "one sentence"
 }}
 """
 
@@ -148,8 +175,10 @@ class MarketScanner:
 
         if len(recent) >= 3:
             rsi_rising = recent.iloc[-1]["rsi"] > recent.iloc[-3]["rsi"]
+            rsi_falling = recent.iloc[-1]["rsi"] < recent.iloc[-3]["rsi"]
         else:
             rsi_rising = False
+            rsi_falling = False
 
         if len(recent) >= 2:
             prev = recent.iloc[-2]
@@ -158,13 +187,20 @@ class MarketScanner:
                 prev["macd_line"] <= prev["macd_signal"]
                 and curr["macd_line"] > curr["macd_signal"]
             )
+            bearish_cross = (
+                prev["macd_line"] >= prev["macd_signal"]
+                and curr["macd_line"] < curr["macd_signal"]
+            )
             macd_above = curr["macd_line"] > curr["macd_signal"]
         else:
             bullish_cross = False
+            bearish_cross = False
             macd_above = False
 
         if bullish_cross:
             macd_state = "bullish_cross"
+        elif bearish_cross:
+            macd_state = "bearish_cross"
         elif macd_above:
             macd_state = "bullish"
         else:
@@ -173,11 +209,13 @@ class MarketScanner:
         return {
             "rsi": rsi_now,
             "rsi_rising": bool(rsi_rising),
+            "rsi_falling": bool(rsi_falling),
             "macd_line": round(macd_line_now, 4),
             "macd_signal": round(macd_signal_now, 4),
             "macd_hist": round(float(last["macd_hist"]), 4),
             "macd_state": macd_state,
             "bullish_cross": bool(bullish_cross),
+            "bearish_cross": bool(bearish_cross),
             "candle_count": len(df),
             "last_close": round(float(last["close"]), 2),
         }
@@ -240,6 +278,7 @@ class MarketScanner:
         system = SCANNER_SYSTEM_PROMPT.format(
             capital=config.capital_limit if config else 5000,
             rsi_oversold=config.rsi_oversold if config else 35,
+            rsi_overbought=config.rsi_overbought if config else 65,
             max_trade_value=config.max_trade_value if config else 2000,
         )
 
@@ -254,14 +293,16 @@ class MarketScanner:
                 f"  LTP: ₹{item['ltp']}\n"
                 f"  RSI(14): {indicators.get('rsi', 'N/A')}\n"
                 f"  RSI Rising: {indicators.get('rsi_rising')}\n"
+                f"  RSI Falling: {indicators.get('rsi_falling')}\n"
                 f"  MACD State: {indicators.get('macd_state')}\n"
-                f"  MACD Cross: {indicators.get('bullish_cross')}\n"
+                f"  Bullish Cross: {indicators.get('bullish_cross')}\n"
+                f"  Bearish Cross: {indicators.get('bearish_cross')}\n"
                 f"  Candles: {indicators.get('candle_count')}"
             )
 
         user_msg = (
             "Analyze the following symbols and identify "
-            "the best BUY opportunity if conditions are met:"
+            "the best BUY or SELL opportunity if conditions are met:"
             f"\n\n{(chr(10) * 2).join(lines)}\n\n"
             "Respond with JSON only."
         )
@@ -394,7 +435,9 @@ class MarketScanner:
                         "market_scanner",
                         "info",
                         f"{symbol} — RSI: {indicators.get('rsi', 'N/A')} | "
-                        f"MACD: {indicators.get('macd_state', 'N/A')}",
+                        f"MACD: {indicators.get('macd_state', 'N/A')} | "
+                        f"Rising: {indicators.get('rsi_rising')} | "
+                        f"Falling: {indicators.get('rsi_falling')}",
                     )
                 else:
                     await broadcast_agent_log(

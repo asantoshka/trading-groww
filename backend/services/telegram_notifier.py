@@ -80,18 +80,34 @@ class TelegramNotifier:
         mode: str,
     ):
         mode_badge = "🧪 PAPER" if mode == "paper" else "💰 LIVE"
-        rr = round((target - entry) / (entry - stoploss), 2) if entry != stoploss else 0
-        await self._send(
-            f"📡 <b>Signal Found</b> {mode_badge}\n\n"
-            f"<b>{action} {symbol}</b>\n"
-            f"Entry:  ₹{entry}\n"
-            f"Target: ₹{target} (+{((target-entry)/entry*100):.2f}%)\n"
-            f"SL:     ₹{stoploss} (-{((entry-stoploss)/entry*100):.2f}%)\n"
-            f"Qty:    {qty} shares\n"
-            f"Value:  ₹{entry*qty:.2f}\n\n"
-            f"RSI: {rsi} | R:R: {rr} | Conf: {confidence}%\n"
-            f"⏰ {_ist_now()} IST"
-        )
+        if action == "SELL":
+            reward = entry - target
+            risk = stoploss - entry
+            rr = round(reward / risk, 2) if risk > 0 else 0
+            await self._send(
+                f"📡 <b>Signal Found</b> {mode_badge} 📉 SHORT\n\n"
+                f"<b>{action} {symbol}</b>\n"
+                f"Entry:  ₹{entry}\n"
+                f"Drop:   ₹{target} (-{((entry-target)/entry*100):.2f}%)\n"
+                f"SL:     ₹{stoploss} (+{((stoploss-entry)/entry*100):.2f}%)\n"
+                f"Qty:    {qty} shares\n"
+                f"Value:  ₹{entry*qty:.2f}\n\n"
+                f"RSI: {rsi} | R:R: {rr} | Conf: {confidence}%\n"
+                f"⏰ {_ist_now()} IST"
+            )
+        else:
+            rr = round((target - entry) / (entry - stoploss), 2) if entry != stoploss else 0
+            await self._send(
+                f"📡 <b>Signal Found</b> {mode_badge}\n\n"
+                f"<b>{action} {symbol}</b>\n"
+                f"Entry:  ₹{entry}\n"
+                f"Target: ₹{target} (+{((target-entry)/entry*100):.2f}%)\n"
+                f"SL:     ₹{stoploss} (-{((entry-stoploss)/entry*100):.2f}%)\n"
+                f"Qty:    {qty} shares\n"
+                f"Value:  ₹{entry*qty:.2f}\n\n"
+                f"RSI: {rsi} | R:R: {rr} | Conf: {confidence}%\n"
+                f"⏰ {_ist_now()} IST"
+            )
 
     async def notify_signal_rejected(
         self,
@@ -124,8 +140,9 @@ class TelegramNotifier:
         mode: str,
     ):
         mode_badge = "🧪 PAPER" if mode == "paper" else "💰 LIVE"
+        short_badge = " 📉 SHORT" if action == "SELL" else ""
         await self._send(
-            f"✅ <b>Order Placed</b> {mode_badge}\n\n"
+            f"✅ <b>Order Placed</b> {mode_badge}{short_badge}\n\n"
             f"<b>{action} {qty} {symbol}</b>\n"
             f"Price:    ₹{price}\n"
             f"Value:    ₹{price*qty:.2f}\n"
@@ -157,10 +174,12 @@ class TelegramNotifier:
         pnl: float,
         pnl_pct: float,
         mode: str,
+        action: str = "BUY",
     ):
         mode_badge = "🧪 PAPER" if mode == "paper" else "💰 LIVE"
+        title = "🎯 Short Target Hit!" if action == "SELL" else "🎯 Target Hit!"
         await self._send(
-            f"🎯 <b>Target Hit!</b> {mode_badge}\n\n"
+            f"{title} {mode_badge}\n\n"
             f"<b>{symbol}</b> — {qty} shares\n"
             f"Entry:  ₹{entry}\n"
             f"Exit:   ₹{exit_price}\n"

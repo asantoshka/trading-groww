@@ -57,8 +57,15 @@ const useStore = create((set, get) => ({
     set((state) => ({
       positions: state.positions.map((p) => {
         if (p.symbol !== symbol) return p
-        const pnl = (ltp - p.entry_price) * p.qty
-        const pnl_pct = ((ltp - p.entry_price) / p.entry_price) * 100
+        const action = p.action || 'BUY'
+        let pnl, pnl_pct
+        if (action === 'BUY') {
+          pnl = (ltp - p.entry_price) * p.qty
+          pnl_pct = ((ltp - p.entry_price) / p.entry_price) * 100
+        } else {
+          pnl = (p.entry_price - ltp) * p.qty
+          pnl_pct = ((p.entry_price - ltp) / p.entry_price) * 100
+        }
         return {
           ...p,
           ltp,

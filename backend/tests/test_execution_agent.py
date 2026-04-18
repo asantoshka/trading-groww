@@ -245,6 +245,137 @@ async def test_execute_full_flow_paper(agent, mock_signal, mock_order, mock_gtt)
 
 
 @pytest.mark.asyncio
+async def test_check_target_hit_short_not_reached(agent):
+    """Test 16: SELL position target not yet reached (LTP still above target)."""
+    position = {
+        "id": "pos-short-001",
+        "symbol": "RVNL",
+        "qty": 6,
+        "entry_price": 302.00,
+        "target": 280.00,
+        "stoploss": 315.00,
+        "gtt_order_id": "GTT-SHORT-001",
+        "mode": "paper",
+        "action": "SELL",
+    }
+    with patch("services.execution_agent.broadcast_agent_log", new=AsyncMock()):
+        result = await agent._check_target_hit(position, 295.00)
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_check_target_hit_short_reached(agent, mock_order):
+    """Test 17: SELL position target hit (LTP dropped below target)."""
+    position = {
+        "id": "pos-short-002",
+        "symbol": "RVNL",
+        "qty": 6,
+        "entry_price": 302.00,
+        "target": 280.00,
+        "stoploss": 315.00,
+        "gtt_order_id": "GTT-SHORT-002",
+        "mode": "paper",
+        "action": "SELL",
+    }
+    mock_db = MagicMock()
+    with patch(
+        "services.execution_agent.groww_client.place_order",
+        new=AsyncMock(return_value=mock_order),
+    ), patch(
+        "services.execution_agent.groww_client.cancel_gtt",
+        new=AsyncMock(return_value={"status": "CANCELLED"}),
+    ), patch(
+        "services.execution_agent.broadcast_agent_log", new=AsyncMock()
+    ), patch(
+        "services.execution_agent.SessionLocal", return_value=mock_db
+    ), patch.object(
+        agent, "_close_position", new=AsyncMock(return_value=True)
+    ):
+        result = await agent._check_target_hit(position, 279.50)
+
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_close_position_short_profit(agent):
+    """Test 18: Short position closed at target — P&L should be positive."""
+    mock_position = MagicMock()
+    mock_position.action = "SELL"
+    mock_position.entry_price = 302.0
+    mock_position.qty = 6
+    mock_position.mode = "paper"
+    mock_position.symbol = "RVNL"
+    mock_position.exchange = "NSE"
+    mock_position.product = "MIS"
+    mock_position.entry_time = None
+
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.first.return_value = mock_position
+    mock_db.query.return_value.filter.return_value.all.return_value = []
+
+    with patch(
+        "services.execution_agent.broadcast_agent_log", new=AsyncMock()
+    ), patch(
+        "services.execution_agent.broadcast_pnl_update", new=AsyncMock()
+    ), patch(
+        "services.execution_agent.telegram.notify_target_hit", new=AsyncMock()
+    ):
+        await agent._close_position("pos-short-002", 285.0, "target_hit", mock_db)
+
+    expected_pnl = (302.0 - 285.0) * 6  # = 102.0
+    assert mock_position.pnl == pytest.approx(expected_pnl)
+    assert mock_position.pnl > 0
+
+
+@pytest.mark.asyncio
+async def test_close_position_short_loss(agent):
+    """Test 19: Short position closed at a loss (price rose)."""
+    mock_position = MagicMock()
+    mock_position.action = "SELL"
+    mock_position.entry_price = 302.0
+    mock_position.qty = 6
+    mock_position.mode = "paper"
+    mock_position.symbol = "RVNL"
+    mock_position.exchange = "NSE"
+    mock_position.product = "MIS"
+    mock_position.entry_time = None
+
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.first.return_value = mock_position
+    mock_db.query.return_value.filter.return_value.all.return_value = []
+
+    with patch(
+        "services.execution_agent.broadcast_agent_log", new=AsyncMock()
+    ), patch(
+        "services.execution_agent.broadcast_pnl_update", new=AsyncMock()
+    ), patch(
+        "services.execution_agent.telegram.notify_stoploss_hit", new=AsyncMock()
+    ):
+        await agent._close_position("pos-short-003", 315.0, "stoploss_hit", mock_db)
+
+    expected_pnl = (302.0 - 315.0) * 6  # = -78.0
+    assert mock_position.pnl == pytest.approx(expected_pnl)
+    assert mock_position.pnl < 0
+
+
+@pytest.mark.asyncio
+async def test_gtt_stoploss_short_direction():
+    """Test 20: GTT for short position must trigger UP (price rising = stoploss)."""
+    from services.groww_client import GrowwClient
+
+    client = GrowwClient()
+    with patch(
+        "services.groww_client._is_paper_mode", return_value=True
+    ):
+        gtt = await client.place_gtt_stoploss(
+            "RVNL", 6, 315.00, position_action="SELL"
+        )
+
+    assert gtt["trigger_direction"] == "UP"
+
+
+@pytest.mark.asyncio
 async def test_monitoring_task_started(agent, mock_signal, mock_order, mock_gtt):
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.first.return_value = None

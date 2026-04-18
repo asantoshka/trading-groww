@@ -102,6 +102,7 @@ class ExecutionAgent:
                 qty=signal.qty,
                 stoploss=signal.stoploss,
                 product="MIS",
+                position_action=signal.action,
             )
         except Exception as exc:
             await broadcast_agent_log(
@@ -137,6 +138,7 @@ class ExecutionAgent:
             id=str(uuid.uuid4()),
             symbol=signal.symbol,
             exchange="NSE",
+            action=signal.action,
             qty=signal.qty,
             entry_price=signal.entry_price,
             current_ltp=signal.entry_price,
@@ -166,6 +168,7 @@ class ExecutionAgent:
             "stoploss": position.stoploss,
             "gtt_order_id": position.gtt_order_id,
             "mode": position.mode,
+            "action": signal.action,
             "status": "open",
             "current_ltp": position.current_ltp,
         }
@@ -191,8 +194,12 @@ class ExecutionAgent:
         if not position:
             return False
 
-        pnl = (exit_price - position.entry_price) * position.qty
-        pnl_pct = ((exit_price - position.entry_price) / position.entry_price) * 100
+        action = position.action or "BUY"
+        if action == "BUY":
+            pnl = (exit_price - position.entry_price) * position.qty
+        else:
+            pnl = (position.entry_price - exit_price) * position.qty
+        pnl_pct = (pnl / (position.entry_price * position.qty)) * 100
 
         position.status = "closed"
         position.exit_price = exit_price
@@ -206,7 +213,7 @@ class ExecutionAgent:
             id=str(uuid.uuid4()),
             symbol=position.symbol,
             exchange=position.exchange,
-            action="BUY",
+            action=action,
             qty=position.qty,
             entry_price=position.entry_price,
             exit_price=exit_price,
@@ -235,6 +242,7 @@ class ExecutionAgent:
                 pnl=pnl,
                 pnl_pct=pnl_pct,
                 mode=position.mode,
+                action=action,
             )
         elif exit_reason == "stoploss_hit":
             await telegram.notify_stoploss_hit(
@@ -274,7 +282,16 @@ class ExecutionAgent:
         position: dict,
         ltp: float,
     ) -> bool:
-        target_hit = ltp >= position["target"]
+        action = position.get("action", "BUY")
+        if action == "BUY":
+            target_hit = ltp >= position["target"]
+            exit_action = "SELL"
+            comparator = "≥"
+        else:
+            target_hit = ltp <= position["target"]
+            exit_action = "BUY"
+            comparator = "≤"
+
         if not target_hit:
             return False
 
@@ -282,7 +299,7 @@ class ExecutionAgent:
             "execution",
             "success",
             f"🎯 Target hit: {position['symbol']} "
-            f"LTP ₹{ltp} >= Target ₹{position['target']}",
+            f"LTP ₹{ltp} {comparator} Target ₹{position['target']}",
         )
 
         try:
@@ -290,7 +307,7 @@ class ExecutionAgent:
                 symbol=position["symbol"],
                 qty=position["qty"],
                 price=ltp,
-                action="SELL",
+                action=exit_action,
                 product="MIS",
                 order_type="MARKET",
             )
@@ -335,11 +352,13 @@ class ExecutionAgent:
                     try:
                         ltp_data = await groww_client.get_ltp([pos["symbol"]])
                         ltp = ltp_data.get(pos["symbol"], pos["entry_price"])
+                        pos_action = pos.get("action", "BUY")
+                        exit_action = "SELL" if pos_action == "BUY" else "BUY"
                         await groww_client.place_order(
                             symbol=pos["symbol"],
                             qty=pos["qty"],
                             price=ltp,
-                            action="SELL",
+                            action=exit_action,
                             product="MIS",
                             order_type="MARKET",
                         )
@@ -356,10 +375,6 @@ class ExecutionAgent:
                             )
                             if closed:
                                 closed_count += 1
-                                total_closed_pnl += round(
-                                    (ltp - pos["entry_price"]) * pos["qty"],
-                                    2,
-                                )
                         finally:
                             db.close()
                     except Exception as exc:
@@ -511,12 +526,14 @@ class ExecutionAgent:
         try:
             ltp_data = await groww_client.get_ltp([pos["symbol"]])
             ltp = ltp_data.get(pos["symbol"], pos["entry_price"])
+            pos_action = pos.get("action", "BUY")
+            exit_action = "SELL" if pos_action == "BUY" else "BUY"
 
             await groww_client.place_order(
                 symbol=pos["symbol"],
                 qty=pos["qty"],
                 price=ltp,
-                action="SELL",
+                action=exit_action,
                 product="MIS",
                 order_type="MARKET",
             )

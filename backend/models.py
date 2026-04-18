@@ -69,6 +69,7 @@ class Position(Base):
     id = Column(String(36), primary_key=True, index=True)
     symbol = Column(String(20), nullable=False)
     exchange = Column(String(10), default="NSE")
+    action = Column(String(10), default="BUY")
     qty = Column(Integer, nullable=False)
     entry_price = Column(Float, nullable=False)
     current_ltp = Column(Float, nullable=True)

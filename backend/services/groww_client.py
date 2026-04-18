@@ -343,23 +343,39 @@ class GrowwClient:
         product: str = "MIS",
         segment: str = "CASH",
         exchange: str = "NSE",
+        position_action: str = "BUY",
     ) -> dict:
         ts = str(int(time.time()))[-6:]
         ref_id = f"GTT-{ts}-{symbol[:4].upper()}"
 
+        # For long (BUY) positions: trigger when price drops to SL → SELL to close
+        # For short (SELL) positions: trigger when price rises to SL → BUY to close
+        if position_action == "BUY":
+            trigger_direction = "DOWN"
+            transaction_type = "SELL"
+        else:
+            trigger_direction = "UP"
+            transaction_type = "BUY"
+
         if _is_paper_mode():
             mock_gtt_id = f"GTT-PAPER-{uuid.uuid4().hex[:6].upper()}"
-            print(
-                f"[PAPER] GTT SL placed: SELL {qty} "
-                f"{symbol} if price <= ₹{stoploss}"
-            )
+            if position_action == "BUY":
+                print(
+                    f"[PAPER] GTT SL: SELL {qty} "
+                    f"{symbol} if price <= ₹{stoploss}"
+                )
+            else:
+                print(
+                    f"[PAPER] GTT SL: BUY {qty} "
+                    f"{symbol} if price >= ₹{stoploss}"
+                )
             return {
                 "smart_order_id": mock_gtt_id,
                 "smart_order_type": "GTT",
                 "status": "ACTIVE",
                 "trading_symbol": symbol,
                 "trigger_price": str(stoploss),
-                "trigger_direction": "DOWN",
+                "trigger_direction": trigger_direction,
                 "paper": True,
                 "remark": "Paper GTT — not sent to exchange",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -372,11 +388,11 @@ class GrowwClient:
             "trading_symbol": symbol,
             "quantity": qty,
             "trigger_price": str(stoploss),
-            "trigger_direction": "DOWN",
+            "trigger_direction": trigger_direction,
             "order": {
                 "order_type": "MARKET",
                 "price": None,
-                "transaction_type": "SELL",
+                "transaction_type": transaction_type,
             },
             "product_type": product,
             "exchange": exchange,
