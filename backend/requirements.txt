@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic
+sqlalchemy
+alembic
+websockets
+pytest
+httpx
+pytest-asyncio
+anthropic[bedrock]
+boto3
+pandas
+pandas-ta
+numpy
+apscheduler
