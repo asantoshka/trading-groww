@@ -1,13 +1,13 @@
 import json
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
 from mock_data import MOCK_AGENTS, MOCK_CAPITAL, MOCK_POSITIONS
-from models import Config, Signal, Trade
+from models import AgentLog, Config, Position, Signal, Trade
 from schemas import ConfigResponse, ConfigUpdate
 from scheduler import trading_scheduler
 
@@ -55,6 +55,41 @@ async def update_config(payload: ConfigUpdate, db: Session = Depends(get_db)) ->
     return {
         "message": "Config updated",
         "config": ConfigResponse.model_validate(config).model_dump(),
+    }
+
+
+@router.post("/admin/reset-paper-data")
+def reset_paper_data(
+    x_confirm: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    if x_confirm != "RESET":
+        raise HTTPException(
+            status_code=400,
+            detail="Send header X-Confirm: RESET to confirm",
+        )
+
+    trades_deleted = db.query(Trade).filter(Trade.mode == "paper").delete()
+    signals_deleted = db.query(Signal).delete()
+    positions_deleted = db.query(Position).delete()
+    logs_deleted = db.query(AgentLog).delete()
+
+    config = db.query(Config).filter(Config.id == 1).first()
+    if config:
+        from mock_data import MOCK_CONFIG
+        config.capital_limit = MOCK_CONFIG["capital_limit"]
+        config.updated_at = datetime.now(timezone.utc)
+
+    db.commit()
+
+    return {
+        "message": "Paper data cleared",
+        "deleted": {
+            "trades": trades_deleted,
+            "signals": signals_deleted,
+            "positions": positions_deleted,
+            "logs": logs_deleted,
+        },
     }
 
 

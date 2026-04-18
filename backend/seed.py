@@ -111,15 +111,22 @@ def seed_agent_logs(session) -> None:
 
 
 def main() -> None:
+    import sys
+
     Base.metadata.create_all(bind=engine)
     session = SessionLocal()
     try:
-        seed_config(session)
-        seed_trades(session)
-        seed_signals(session)
-        seed_agent_logs(session)
-        session.commit()
-        print("Seed complete. DB ready.")
+        if "--config-only" in sys.argv:
+            seed_config(session)
+            session.commit()
+            print("Config-only seed complete")
+        else:
+            seed_config(session)
+            seed_trades(session)
+            seed_signals(session)
+            seed_agent_logs(session)
+            session.commit()
+            print("Seed complete. DB ready.")
     finally:
         session.close()
 
