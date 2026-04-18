@@ -18,11 +18,29 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "positions",
-        sa.Column("action", sa.String(length=10), nullable=True, server_default="BUY"),
-    )
+    # Use raw connection to inspect existing columns — safe on both fresh
+    # installs (where initial migration already created positions with action)
+    # and existing EC2 databases (where positions was created via create_all
+    # without the action column).
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+
+    tables = inspector.get_table_names()
+    if "positions" not in tables:
+        # Should not happen (initial migration creates it), but guard anyway.
+        return
+
+    existing_columns = [col["name"] for col in inspector.get_columns("positions")]
+    if "action" not in existing_columns:
+        op.add_column(
+            "positions",
+            sa.Column("action", sa.String(length=10), nullable=True, server_default="BUY"),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("positions", "action")
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    existing_columns = [col["name"] for col in inspector.get_columns("positions")]
+    if "action" in existing_columns:
+        op.drop_column("positions", "action")
