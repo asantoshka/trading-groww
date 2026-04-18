@@ -17,6 +17,20 @@ function MarketStatusBadge({ marketStatus }) {
   if (!marketStatus) return null
 
   if (marketStatus.is_open) {
+    if (!marketStatus.entry_allowed) {
+      return (
+        <span className="shrink-0 font-mono text-[10px] text-red">
+          ⛔ NO NEW ENTRIES
+        </span>
+      )
+    }
+    if (marketStatus.minutes_to_last_entry <= 30) {
+      return (
+        <span className="shrink-0 font-mono text-[10px] text-amber-400">
+          ⚠ {marketStatus.minutes_to_last_entry}m to cutoff
+        </span>
+      )
+    }
     return (
       <span className="shrink-0 font-mono text-[10px] text-green">
         ● MARKET OPEN

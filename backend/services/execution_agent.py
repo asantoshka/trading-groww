@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import Config, Position, Signal, Trade
 from services.groww_client import groww_client
+from services.market_hours import is_entry_allowed
 from services.telegram_notifier import telegram
 from services.websocket_manager import (
     broadcast_agent_log,
@@ -354,6 +355,14 @@ class ExecutionAgent:
                         ltp = ltp_data.get(pos["symbol"], pos["entry_price"])
                         pos_action = pos.get("action", "BUY")
                         exit_action = "SELL" if pos_action == "BUY" else "BUY"
+                        await broadcast_agent_log(
+                            "execution",
+                            "warning",
+                            f"15:10 IST square-off: "
+                            f"{exit_action} {pos['qty']} "
+                            f"{pos['symbol']} @ ₹{ltp:.2f} "
+                            f"({'long' if pos_action == 'BUY' else 'short'} position)",
+                        )
                         await groww_client.place_order(
                             symbol=pos["symbol"],
                             qty=pos["qty"],
@@ -480,6 +489,27 @@ class ExecutionAgent:
                     "warning",
                     f"Margin check failed, proceeding: {str(exc)}",
                 )
+
+            if not is_entry_allowed():
+                await broadcast_agent_log(
+                    "execution",
+                    "warning",
+                    f"Order blocked — past 15:00 IST entry cutoff. "
+                    f"Cannot open new MIS position this close to market close.",
+                )
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+                _ist_now = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M:%S")
+                await telegram._send(
+                    f"⛔ <b>Order Blocked</b>\n\n"
+                    f"Signal: {signal_row.action} {signal_row.symbol}\n"
+                    f"Reason: Past 15:00 IST entry cutoff\n"
+                    f"No new MIS positions allowed after 15:00 IST\n"
+                    f"⏰ {_ist_now} IST"
+                )
+                self.is_running = False
+                await broadcast_agent_status("execution", "stopped", None)
+                return None
 
             entry_order = await self._place_entry_order(signal_row, work_db)
             if entry_order is None:

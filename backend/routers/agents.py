@@ -101,14 +101,19 @@ async def trigger_scanner() -> dict[str, object]:
             detail=f"Failed to trigger scan: {exc}",
         ) from exc
     market = get_market_status()
+    if not market["entry_allowed"] and market["is_open"]:
+        warning = (
+            "Past 15:00 IST entry cutoff. "
+            "Scan will run but no orders will be placed."
+        )
+    elif market["is_open"]:
+        warning = None
+    else:
+        warning = f"{market['message']}. Data may be stale."
     return {
         "message": "Scan triggered manually",
         "status": "running",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "market_status": market["message"],
-        "warning": (
-            None
-            if market["is_open"]
-            else f"{market['message']}. Data may be stale."
-        ),
+        "warning": warning,
     }

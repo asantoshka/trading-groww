@@ -376,6 +376,80 @@ async def test_gtt_stoploss_short_direction():
 
 
 @pytest.mark.asyncio
+async def test_squareoff_long_places_sell(agent):
+    """Test 21: Manual squareoff of a long (BUY) position must place a SELL order."""
+    agent._active_positions["pos-long-sq"] = {
+        "id": "pos-long-sq",
+        "symbol": "NHPC",
+        "qty": 9,
+        "entry_price": 84.10,
+        "target": 89.50,
+        "stoploss": 81.00,
+        "gtt_order_id": None,
+        "mode": "paper",
+        "action": "BUY",
+    }
+    mock_order = {"groww_order_id": "PAPER-SQ-001", "paper": True}
+    mock_db = MagicMock()
+    place_order_mock = AsyncMock(return_value=mock_order)
+    with patch(
+        "services.execution_agent.groww_client.get_ltp",
+        new=AsyncMock(return_value={"NHPC": 87.00}),
+    ), patch(
+        "services.execution_agent.groww_client.place_order",
+        new=place_order_mock,
+    ), patch(
+        "services.execution_agent.SessionLocal", return_value=mock_db
+    ), patch(
+        "services.execution_agent.broadcast_agent_log", new=AsyncMock()
+    ), patch.object(
+        agent, "_close_position", new=AsyncMock(return_value=True)
+    ):
+        result = await agent.manual_squareoff("pos-long-sq")
+
+    assert result is True
+    call_kwargs = place_order_mock.call_args
+    assert call_kwargs.kwargs["action"] == "SELL"
+
+
+@pytest.mark.asyncio
+async def test_squareoff_short_places_buy(agent):
+    """Test 22: Manual squareoff of a short (SELL) position must place a BUY order."""
+    agent._active_positions["pos-short-sq"] = {
+        "id": "pos-short-sq",
+        "symbol": "RVNL",
+        "qty": 6,
+        "entry_price": 302.00,
+        "target": 280.00,
+        "stoploss": 315.00,
+        "gtt_order_id": None,
+        "mode": "paper",
+        "action": "SELL",
+    }
+    mock_order = {"groww_order_id": "PAPER-SQ-002", "paper": True}
+    mock_db = MagicMock()
+    place_order_mock = AsyncMock(return_value=mock_order)
+    with patch(
+        "services.execution_agent.groww_client.get_ltp",
+        new=AsyncMock(return_value={"RVNL": 290.00}),
+    ), patch(
+        "services.execution_agent.groww_client.place_order",
+        new=place_order_mock,
+    ), patch(
+        "services.execution_agent.SessionLocal", return_value=mock_db
+    ), patch(
+        "services.execution_agent.broadcast_agent_log", new=AsyncMock()
+    ), patch.object(
+        agent, "_close_position", new=AsyncMock(return_value=True)
+    ):
+        result = await agent.manual_squareoff("pos-short-sq")
+
+    assert result is True
+    call_kwargs = place_order_mock.call_args
+    assert call_kwargs.kwargs["action"] == "BUY"
+
+
+@pytest.mark.asyncio
 async def test_monitoring_task_started(agent, mock_signal, mock_order, mock_gtt):
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.first.return_value = None

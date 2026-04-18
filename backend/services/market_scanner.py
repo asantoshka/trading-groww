@@ -25,6 +25,7 @@ from database import SessionLocal
 from models import Config, Signal
 from services.groww_client import groww_client
 from services.llm_client import llm_client
+from services.market_hours import get_time_to_last_entry, is_entry_allowed
 from services.risk_gatekeeper import RiskConfig, RiskGatekeeper, SignalInput
 from services.telegram_notifier import telegram
 from services.websocket_manager import (
@@ -383,6 +384,22 @@ class MarketScanner:
             config, risk_config = self._load_config(db)
             watchlist = config.get_watchlist() if config else DEFAULT_WATCHLIST
             mode = config.mode if config else "paper"
+
+            if not is_entry_allowed():
+                mins = get_time_to_last_entry()
+                if mins == 0:
+                    msg = (
+                        "Scan skipped — past 15:00 IST entry cutoff. "
+                        "Too close to market close for new positions."
+                    )
+                else:
+                    msg = (
+                        f"Scan skipped — only {mins} mins to entry cutoff "
+                        f"(15:00 IST). Not enough time for new entry."
+                    )
+                await broadcast_agent_log("market_scanner", "warning", msg)
+                await telegram.notify_no_signal(msg)
+                return None
 
             await broadcast_agent_log(
                 "market_scanner",

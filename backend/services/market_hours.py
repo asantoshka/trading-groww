@@ -9,6 +9,7 @@ IST = ZoneInfo("Asia/Kolkata")
 
 MARKET_OPEN = time(9, 15)
 MARKET_CLOSE = time(15, 30)
+LAST_ENTRY_TIME = time(15, 0)
 
 NSE_HOLIDAY_URL = "https://www.nseindia.com/api/holiday-master?type=trading"
 
@@ -121,12 +122,45 @@ def get_market_status() -> dict:
         "is_open": is_open,
         "is_trading_day": is_trading_day(),
         "is_holiday": is_holiday,
+        "entry_allowed": is_entry_allowed(),
+        "minutes_to_close": get_time_to_close(),
+        "minutes_to_last_entry": get_time_to_last_entry(),
         "holidays_loaded": _cache_loaded,
         "holiday_count": len(_holiday_cache),
         "message": message,
         "current_time_ist": now.strftime("%H:%M:%S IST"),
         "date": today.isoformat(),
     }
+
+
+def is_entry_allowed() -> bool:
+    """Returns True only if market is open and current time is before 15:00 IST."""
+    if not is_market_open():
+        return False
+    now = datetime.now(IST)
+    if now.time() >= LAST_ENTRY_TIME:
+        return False
+    return True
+
+
+def get_time_to_close() -> int:
+    """Returns minutes remaining until market close (15:30 IST). 0 if closed."""
+    now = datetime.now(IST)
+    if not is_market_open():
+        return 0
+    close = datetime.combine(now.date(), MARKET_CLOSE, tzinfo=IST)
+    delta = close - now
+    return max(0, int(delta.total_seconds() / 60))
+
+
+def get_time_to_last_entry() -> int:
+    """Returns minutes remaining until last entry cutoff (15:00 IST). 0 if past cutoff."""
+    now = datetime.now(IST)
+    if not is_market_open():
+        return 0
+    cutoff = datetime.combine(now.date(), LAST_ENTRY_TIME, tzinfo=IST)
+    delta = cutoff - now
+    return max(0, int(delta.total_seconds() / 60))
 
 
 def next_market_open() -> str:
