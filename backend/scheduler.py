@@ -89,6 +89,47 @@ async def job_squareoff_warning():
     await telegram.notify_squareoff_warning()
 
 
+async def job_approval_reminder():
+    """
+    8:45 AM IST reminder to approve
+    Groww session before market opens.
+    Only fires on trading days.
+    """
+    if not is_trading_day():
+        return
+
+    from services.token_manager import token_manager
+
+    if not token_manager._is_token_expired():
+        logger.info(
+            "[Scheduler] 8:45 AM check: "
+            "token already valid, skipping reminder"
+        )
+        return
+
+    from datetime import datetime
+    _ist_now = datetime.now(IST).strftime("%H:%M:%S")
+
+    logger.warning("[Scheduler] 8:45 AM: Groww session not yet approved")
+    await broadcast_agent_log(
+        "market_scanner",
+        "warning",
+        "⚠️ 8:45 AM reminder — Groww session "
+        "not yet approved. Please approve at "
+        "groww.in/user/profile/trading-apis "
+        "before 9:15 AM scan.",
+    )
+    await telegram._send(
+        f"⚠️ <b>Reminder: Approve Groww Session</b>\n\n"
+        f"Market opens in 30 minutes.\n"
+        f"Your Groww session is not yet approved.\n\n"
+        f"👉 Approve now:\n"
+        f"groww.in/user/profile/trading-apis\n\n"
+        f"First scan fires at 09:15 IST.\n"
+        f"⏰ {_ist_now} IST"
+    )
+
+
 async def job_market_open_check():
     """Runs at 9:14 AM IST — pre-market check."""
     if not is_trading_day():
@@ -158,6 +199,13 @@ class TradingScheduler:
             replace_existing=True,
         )
         self.scheduler.add_job(
+            job_approval_reminder,
+            trigger=CronTrigger(hour=8, minute=45, timezone=IST),
+            id="approval_reminder",
+            name="Groww Session Approval Reminder",
+            replace_existing=True,
+        )
+        self.scheduler.add_job(
             job_market_open_check,
             trigger=CronTrigger(hour=9, minute=14, timezone=IST),
             id="market_open_check",
@@ -187,7 +235,7 @@ class TradingScheduler:
             "market_scanner",
             "info",
             f"Scheduler started: {len(scan_times)} scan jobs + "
-            "token refresh + square-off warning",
+            "token refresh + approval reminder + square-off warning",
         )
 
     def shutdown(self):
