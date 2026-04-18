@@ -26,13 +26,18 @@ def get_positions(db: Session = Depends(get_db)) -> dict[str, object]:
     for db_position in db_positions:
         active_data = active.get(db_position.id, {})
         ltp = active_data.get("current_ltp", db_position.entry_price)
-        pnl = (ltp - db_position.entry_price) * db_position.qty
-        pnl_pct = ((ltp - db_position.entry_price) / db_position.entry_price) * 100
+        action = getattr(db_position, "action", None) or "BUY"
+        if action == "BUY":
+            pnl = (ltp - db_position.entry_price) * db_position.qty
+        else:
+            pnl = (db_position.entry_price - ltp) * db_position.qty
+        pnl_pct = (pnl / (db_position.entry_price * db_position.qty)) * 100
         merged_positions.append(
             {
                 "id": db_position.id,
                 "symbol": db_position.symbol,
                 "exchange": db_position.exchange,
+                "action": action,
                 "qty": db_position.qty,
                 "entry_price": db_position.entry_price,
                 "ltp": round(ltp, 2),
